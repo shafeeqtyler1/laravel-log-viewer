@@ -111,6 +111,9 @@ class LogParserService
         $entry->sourceType = $this->detectSourceType($entry);
         $entry->entrypoint = $this->detectEntrypoint($entry);
 
+        // Extract SQL info for database exceptions
+        $entry->sqlInfo = $this->extractSqlInfo($entry->message, $entry->stackTrace);
+
         return $entry;
     }
 
@@ -159,8 +162,13 @@ class LogParserService
             }
         }
 
-        // Also parse inline [stacktrace] blocks in the message body
-        if (str_contains($message, '[stacktrace]') || str_contains($message, '#0 ')) {
+        // Also parse inline stack trace blocks in the message body.
+        // Handles both "[stacktrace]" and "Stack trace:\n#0 ..." (PHP native format).
+        if (
+            str_contains($message, '[stacktrace]') ||
+            str_contains($message, "Stack trace:\n") ||
+            str_contains($message, '#0 ')
+        ) {
             [$message, $inlineTrace] = $this->extractInlineStackTrace($message);
             if (!empty($inlineTrace) && empty($stackTrace)) {
                 $stackTrace = $inlineTrace;
@@ -281,27 +289,71 @@ class LogParserService
 
     /**
      * Extract inline stack trace from message text.
+     * Handles: "[stacktrace]", "Stack trace:\n", and bare "#0 " markers.
+     * Also merges frames from chained exceptions ("Next ExceptionClass:").
      *
      * @return array{0: string, 1: array}
      */
     private function extractInlineStackTrace(string $text): array
     {
-        $frames = [];
+        // Candidate markers in priority order
+        $candidates = [];
 
-        // Find [stacktrace] or first #0
-        $marker = strpos($text, '[stacktrace]');
-        if ($marker === false) {
-            $marker = strpos($text, '#0 ');
+        $pos = strpos($text, '[stacktrace]');
+        if ($pos !== false) {
+            $candidates[] = $pos;
         }
 
-        if ($marker !== false) {
-            $traceText = substr($text, $marker);
-            $message   = rtrim(substr($text, 0, $marker));
-            $frames    = $this->parseStackTraceText($traceText);
-            return [$message, $frames];
+        $pos = strpos($text, "Stack trace:\n");
+        if ($pos !== false) {
+            $candidates[] = $pos;
         }
 
-        return [$text, []];
+        $pos = strpos($text, '#0 ');
+        if ($pos !== false) {
+            $candidates[] = $pos;
+        }
+
+        if (empty($candidates)) {
+            return [$text, []];
+        }
+
+        $marker    = min($candidates);
+        $message   = rtrim(substr($text, 0, $marker));
+        $traceText = substr($text, $marker);
+
+        // Collect all frame lines from ALL chained exceptions in the block.
+        // Laravel logs chained exceptions with "Next ExceptionClass: ..." sections.
+        $allFrames = $this->parseAllStackTraces($traceText);
+
+        return [$message, $allFrames];
+    }
+
+    /**
+     * Parse all stack trace frames from a text that may contain multiple
+     * chained exception blocks separated by "Next ExceptionClass:".
+     * Returns de-duplicated frames ordered by frame number.
+     */
+    private function parseAllStackTraces(string $text): array
+    {
+        // Split on "Next SomeClass:" boundaries so we capture every chain link
+        $sections = preg_split('/\nNext\s+\S+:/m', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+        $seen   = [];
+        $merged = [];
+
+        foreach ($sections as $section) {
+            $frames = $this->parseStackTraceText($section);
+            foreach ($frames as $frame) {
+                $key = ($frame['file'] ?? '') . ':' . ($frame['line'] ?? 0) . ':' . ($frame['function'] ?? '');
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $merged[]   = $frame;
+                }
+            }
+        }
+
+        return $merged;
     }
 
     /**
@@ -480,6 +532,91 @@ class LogParserService
                 }
                 return 'System';
         }
+    }
+
+    /**
+     * Extract SQL/database details from an exception message + stack trace.
+     * Returns an empty array when the entry is not a SQL exception.
+     *
+     * @return array{exception_type:string, sqlstate:string, error_message:string, sql:string, table:string, column:string, model:string, operation:string}
+     */
+    public function extractSqlInfo(string $message, array $stackTrace): array
+    {
+        // Only process SQL-related exceptions
+        if (
+            !str_contains($message, 'SQLSTATE') &&
+            !str_contains($message, 'QueryException') &&
+            !str_contains($message, 'PDOException') &&
+            !str_contains($message, 'PDO->') &&
+            !str_contains($message, 'Database\\')
+        ) {
+            return [];
+        }
+
+        $info = [
+            'exception_type' => '',
+            'sqlstate'       => '',
+            'error_message'  => '',
+            'sql'            => '',
+            'table'          => '',
+            'column'         => '',
+            'model'          => '',
+            'operation'      => '',
+        ];
+
+        // Exception class name (first word ending in Exception)
+        if (preg_match('/(\w*Exception)/', $message, $m)) {
+            $info['exception_type'] = $m[1];
+        }
+
+        // SQLSTATE code
+        if (preg_match('/SQLSTATE\[([^\]]+)\](?::\s*\w+\s+\w+:\s*\d+\s+)?([^(]+)?/', $message, $m)) {
+            $info['sqlstate']      = $m[1];
+            $info['error_message'] = trim($m[2] ?? '');
+        }
+
+        // SQL query embedded in QueryException: "SQL: <query>"
+        if (preg_match('/\bSQL:\s+(.+?)(?:\s*\))?$/ms', $message, $m)) {
+            $info['sql'] = trim($m[1]);
+        }
+
+        // Determine DML operation
+        if (preg_match('/\b(select|insert|update|delete|replace)\b/i', $info['sql'] ?: $message, $m)) {
+            $info['operation'] = strtoupper($m[1]);
+        }
+
+        // Table name from SQL (first backtick-quoted identifier)
+        if (preg_match('/`([a-z_][a-z0-9_]*)`/i', $info['sql'] ?: $message, $m)) {
+            $info['table'] = $m[1];
+        }
+
+        // Unknown column name
+        if (preg_match("/Unknown column '([^']+)'/i", $message, $m)) {
+            $info['column'] = $m[1];
+        }
+
+        // Affected model: look for App\Models\* in stack trace class names
+        foreach ($stackTrace as $frame) {
+            $class = $frame['class'] ?? '';
+            if (preg_match('/App\\\\Models\\\\(\w+)/', $class, $m)) {
+                $info['model'] = $m[1];
+                break;
+            }
+        }
+
+        // Fallback: derive model from table name (snake_case → PascalCase, singular)
+        if ($info['model'] === '' && $info['table'] !== '') {
+            $parts = explode('_', $info['table']);
+            $parts = array_map('ucfirst', $parts);
+            // Simple singular: strip trailing 's' if present (heuristic)
+            $last = end($parts);
+            if (strlen($last) > 1 && substr($last, -1) === 's') {
+                $parts[count($parts) - 1] = substr($last, 0, -1);
+            }
+            $info['model'] = implode('', $parts);
+        }
+
+        return $info;
     }
 
     /**

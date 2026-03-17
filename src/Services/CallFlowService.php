@@ -10,6 +10,8 @@ class CallFlowService
 {
     /**
      * Build a call flow array from a LogEntry's stack trace.
+     * For SQL exceptions a leading "database" node is prepended showing
+     * the table, column and SQL query details.
      *
      * @return array<int, array{order: int, type: string, class: string, method: string, file: string, line: int, label: string}>
      */
@@ -17,11 +19,36 @@ class CallFlowService
     {
         $frames = $entry->stackTrace;
 
-        if (empty($frames)) {
-            return [];
+        $flow = [];
+
+        // ── SQL / Database exception node ──────────────────────────────────
+        if (!empty($entry->sqlInfo)) {
+            $sql  = $entry->sqlInfo;
+            $desc = $sql['operation'] ?: 'QUERY';
+            if ($sql['table'] !== '') {
+                $desc .= ' `' . $sql['table'] . '`';
+            }
+            if ($sql['column'] !== '') {
+                $desc .= ' — unknown column `' . $sql['column'] . '`';
+            }
+
+            $flow[] = [
+                'order'    => 0,
+                'type'     => 'database',
+                'class'    => $sql['model'] !== '' ? 'App\\Models\\' . $sql['model'] : 'Database',
+                'method'   => $sql['operation'] ?: 'query',
+                'file'     => '',
+                'line'     => 0,
+                'label'    => $desc,
+                'sql_info' => $sql,
+            ];
         }
 
-        // Separate app frames from vendor frames
+        if (empty($frames)) {
+            return $flow;
+        }
+
+        // ── Separate app frames from vendor frames ─────────────────────────
         $appFrames    = [];
         $vendorFrames = [];
 
@@ -35,13 +62,12 @@ class CallFlowService
             }
         }
 
-        // If no app frames, include the first vendor frame
+        // If no app frames, include the first vendor frame as a fallback
         if (empty($appFrames) && !empty($vendorFrames)) {
             $appFrames = [$vendorFrames[0]];
         }
 
-        $flow  = [];
-        $order = 0;
+        $order = count($flow); // continue after any already-added nodes
 
         foreach ($appFrames as $frame) {
             $class  = $frame['class'] ?? '';
@@ -108,22 +134,42 @@ class CallFlowService
 
     /**
      * Determine if a frame belongs to app code (not vendor).
+     * Recognises: app/, database/seeders, database/migrations, database/factories
+     * and the corresponding namespaces App\, Database\.
      */
     private function isAppFrame(string $file, string $class): bool
     {
+        // Vendor frames are never app frames
         if (str_contains($file, '/vendor/') || str_contains($file, '\\vendor\\')) {
             return false;
         }
 
-        if (str_contains($class, 'Illuminate\\') || str_contains($class, 'Symfony\\')) {
+        // Framework / library namespaces
+        if (
+            str_contains($class, 'Illuminate\\') ||
+            str_contains($class, 'Symfony\\') ||
+            str_contains($class, 'PDO')
+        ) {
             return false;
         }
 
+        // app/ directory
         if (str_contains($file, '/app/') || str_contains($file, '\\app\\')) {
             return true;
         }
 
+        // database/ directory — seeders, migrations, factories
+        if (str_contains($file, '/database/') || str_contains($file, '\\database\\')) {
+            return true;
+        }
+
+        // App\ namespace
         if (str_contains($class, 'App\\')) {
+            return true;
+        }
+
+        // Database\ namespace (Database\Seeders\*, Database\Factories\*)
+        if (str_contains($class, 'Database\\')) {
             return true;
         }
 
@@ -170,6 +216,20 @@ class CallFlowService
 
         if (str_contains($path, 'Console\\Commands') || str_contains($path, '/Commands/')) {
             return 'command';
+        }
+
+        if (
+            str_contains($path, 'Seeders') || str_contains($path, 'Seeder') ||
+            str_contains($path, '/seeders/') || str_contains($path, '\\seeders\\')
+        ) {
+            return 'seeder';
+        }
+
+        if (
+            str_contains($path, '/migrations/') || str_contains($path, '\\migrations\\') ||
+            str_contains($path, 'Migration')
+        ) {
+            return 'migration';
         }
 
         return 'other';

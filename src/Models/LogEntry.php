@@ -16,6 +16,7 @@ class LogEntry
     public string $message;
     public array  $context;
     public array  $stackTrace;
+    public array  $sqlInfo;      // populated for SQL/DB exceptions
     public string $rawLine;
     public int    $fileOffset;
 
@@ -31,6 +32,7 @@ class LogEntry
         $this->message        = '';
         $this->context        = [];
         $this->stackTrace     = [];
+        $this->sqlInfo        = [];
         $this->rawLine        = '';
         $this->fileOffset     = 0;
     }
@@ -48,6 +50,7 @@ class LogEntry
             'message'         => $this->message,
             'context'         => $this->context,
             'stack_trace'     => $this->stackTrace,
+            'sql_info'        => $this->sqlInfo,
             'raw_line'        => $this->rawLine,
             'file_offset'     => $this->fileOffset,
         ];
@@ -66,6 +69,7 @@ class LogEntry
         $entry->message       = $data['message'] ?? '';
         $entry->context       = $data['context'] ?? [];
         $entry->stackTrace    = $data['stack_trace'] ?? [];
+        $entry->sqlInfo       = $data['sql_info'] ?? [];
         $entry->rawLine       = $data['raw_line'] ?? '';
         $entry->fileOffset    = $data['file_offset'] ?? 0;
 
