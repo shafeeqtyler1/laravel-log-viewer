@@ -35,7 +35,7 @@
         .flow-step-command    { background: #cffafe; color: #0e7490; }
         .flow-step-seeder     { background: #fef3c7; color: #92400e; }
         .flow-step-migration  { background: #e0e7ff; color: #3730a3; }
-        .flow-step-database   { background: #fee2e2; color: #991b1b; font-weight: 600; }
+        .flow-step-database   { background: #fee2e2; color: #991b1b; font-weight: 600; border: 1px solid #fecaca; }
         .flow-step-other      { background: #f1f5f9; color: #475569; }
         .chart-container { height: 120px; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -466,42 +466,46 @@
 
                         {{-- SQL Info Banner (shown for DB exceptions) --}}
                         <template x-if="selectedEntry.sql_info && selectedEntry.sql_info.sqlstate">
-                            <div class="rounded-lg border border-red-200 bg-red-50 p-3 space-y-2">
-                                <div class="flex items-center gap-2">
-                                    <svg class="w-4 h-4 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582 4-8 4"/></svg>
+                            <div class="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                        <ellipse cx="12" cy="6" rx="8" ry="3"/>
+                                        <path d="M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6"/>
+                                        <path d="M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6"/>
+                                    </svg>
                                     <span class="text-sm font-semibold text-red-700" x-text="selectedEntry.sql_info.exception_type || 'Database Error'"></span>
                                     <span class="text-xs font-mono bg-red-100 text-red-800 px-1.5 py-0.5 rounded" x-text="'SQLSTATE[' + selectedEntry.sql_info.sqlstate + ']'"></span>
                                 </div>
-                                <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
                                     <template x-if="selectedEntry.sql_info.table">
-                                        <div class="flex gap-1">
-                                            <span class="text-gray-400 shrink-0">Table:</span>
-                                            <code class="font-mono text-gray-700" x-text="'`' + selectedEntry.sql_info.table + '`'"></code>
-                                        </div>
-                                    </template>
-                                    <template x-if="selectedEntry.sql_info.column">
-                                        <div class="flex gap-1">
-                                            <span class="text-red-500 shrink-0 font-semibold">Unknown column:</span>
-                                            <code class="font-mono text-red-700 font-semibold" x-text="'`' + selectedEntry.sql_info.column + '`'"></code>
+                                        <div class="flex gap-2">
+                                            <span class="text-gray-500 shrink-0 font-medium">Table:</span>
+                                            <code class="font-mono text-gray-800" x-text="'`' + selectedEntry.sql_info.table + '`'"></code>
                                         </div>
                                     </template>
                                     <template x-if="selectedEntry.sql_info.model">
-                                        <div class="flex gap-1">
-                                            <span class="text-gray-400 shrink-0">Model:</span>
-                                            <code class="font-mono text-pink-700" x-text="selectedEntry.sql_info.model"></code>
+                                        <div class="flex gap-2">
+                                            <span class="text-gray-500 shrink-0 font-medium">Model:</span>
+                                            <code class="font-mono text-pink-700 font-semibold" x-text="selectedEntry.sql_info.model"></code>
+                                        </div>
+                                    </template>
+                                    <template x-if="selectedEntry.sql_info.column">
+                                        <div class="flex gap-2">
+                                            <span class="text-red-600 shrink-0 font-semibold">Column:</span>
+                                            <code class="font-mono text-red-700 font-semibold" x-text="'`' + selectedEntry.sql_info.column + '`'"></code>
                                         </div>
                                     </template>
                                     <template x-if="selectedEntry.sql_info.operation">
-                                        <div class="flex gap-1">
-                                            <span class="text-gray-400 shrink-0">Operation:</span>
-                                            <code class="font-mono text-gray-700" x-text="selectedEntry.sql_info.operation"></code>
+                                        <div class="flex gap-2">
+                                            <span class="text-gray-500 shrink-0 font-medium">Operation:</span>
+                                            <code class="font-mono text-gray-800" x-text="selectedEntry.sql_info.operation"></code>
                                         </div>
                                     </template>
                                 </div>
                                 <template x-if="selectedEntry.sql_info.sql">
                                     <div>
-                                        <div class="text-xs text-gray-400 mb-1">SQL Query:</div>
-                                        <pre class="text-xs bg-white border border-red-100 rounded p-2 overflow-x-auto text-gray-700 whitespace-pre-wrap break-all" x-text="selectedEntry.sql_info.sql"></pre>
+                                        <div class="text-xs text-gray-500 font-medium mb-1">SQL Query:</div>
+                                        <pre class="text-xs bg-white border border-red-100 rounded-md p-3 overflow-x-auto text-gray-700 whitespace-pre-wrap break-words leading-relaxed" x-text="selectedEntry.sql_info.sql"></pre>
                                     </div>
                                 </template>
                             </div>
@@ -510,14 +514,14 @@
                         {{-- Call Flow --}}
                         <div x-show="selectedEntry.callFlow && selectedEntry.callFlow.length > 0">
                             <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Call Flow</h3>
-                            <div class="flex flex-wrap items-center gap-1">
+                            <div class="flex flex-wrap items-start gap-2">
                                 <template x-for="(step, idx) in selectedEntry.callFlow" :key="step.order">
-                                    <div class="flex items-center gap-1">
-                                        <div class="flex flex-col items-center max-w-[140px]">
-                                            <span class="badge text-xs px-2 py-1 rounded-md text-center"
+                                    <div class="flex items-center gap-2 shrink-0">
+                                        <div class="flex flex-col items-center">
+                                            <span class="badge text-xs px-2.5 py-1 rounded-md text-center whitespace-nowrap"
                                                   :class="'flow-step-' + step.type"
                                                   x-text="step.label"></span>
-                                            <span class="text-gray-400 mt-0.5 truncate w-full text-center" style="font-size:10px;"
+                                            <span class="text-gray-400 mt-0.5 text-center whitespace-nowrap" style="font-size:10px;"
                                                   :title="step.file ? step.file + ':' + step.line : ''"
                                                   x-text="step.file ? (step.file.split(/[\\/]/).pop() + ':' + step.line) : (step.sql_info && step.sql_info.model ? step.sql_info.model : '')"></span>
                                         </div>
