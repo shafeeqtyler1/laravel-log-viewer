@@ -298,12 +298,15 @@
                         <template x-for="entry in entries" :key="entry.id">
                             <tr class="log-row" @click="openEntry(entry)">
                                 {{-- Timestamp --}}
-                                <td class="px-4 py-2 align-top w-52">
+                                <td class="px-4 py-2 align-top w-56">
                                     <div class="flex items-center gap-1">
                                         <span class="font-mono-small text-gray-700" x-text="formatTimestamp(entry.timestamp)"></span>
                                         <span class="badge badge-info" style="font-size:9px; padding: 1px 4px;">UTC</span>
                                     </div>
-                                    <div class="font-mono-small text-gray-400 mt-0.5" x-text="entry.timestamp_local"></div>
+                                    <div class="flex items-center gap-1 mt-0.5">
+                                        <span class="font-mono-small text-gray-400" x-text="formatLocalTimestamp(entry.timestamp)"></span>
+                                        <span class="text-gray-300 font-mono-small" style="font-size:10px;" x-text="formatTimezoneLabel(entry.timestamp)"></span>
+                                    </div>
                                 </td>
 
                                 {{-- Entrypoint --}}
@@ -406,6 +409,10 @@
                         <span class="badge" :class="sourceClass(selectedEntry.source_type)" x-text="selectedEntry.source_type"></span>
                     </template>
                     <span class="text-xs text-gray-400 font-mono-small" x-text="selectedEntry ? formatTimestamp(selectedEntry.timestamp) + ' UTC' : ''"></span>
+                    <template x-if="selectedEntry">
+                        <span class="text-xs text-gray-300 font-mono-small"
+                              x-text="'→ ' + formatLocalTimestamp(selectedEntry.timestamp) + ' ' + formatTimezoneLabel(selectedEntry.timestamp)"></span>
+                    </template>
                 </div>
                 <button @click="closeModal()" class="text-gray-400 hover:text-gray-700 transition p-1 rounded hover:bg-gray-100">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -446,7 +453,8 @@
                             </div>
                             <div class="flex items-center gap-1.5 bg-gray-50 rounded px-3 py-1.5">
                                 <span class="text-gray-400">Local:</span>
-                                <span class="font-mono-small text-gray-700" x-text="selectedEntry.timestamp_local"></span>
+                                <span class="font-mono-small text-gray-700" x-text="formatLocalTimestamp(selectedEntry.timestamp)"></span>
+                                <span class="text-xs text-blue-500 font-semibold" x-text="formatTimezoneLabel(selectedEntry.timestamp)"></span>
                             </div>
                         </div>
 
@@ -1035,11 +1043,55 @@
                 return map[(type || '').toUpperCase()] || 'source-system';
             },
 
+            // Detect browser local timezone once on init
+            localTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+
+            // Format UTC ISO string as "YYYY-MM-DD HH:MM:SS" (strip offset)
             formatTimestamp(ts) {
                 if (!ts) return '';
-                // Show as "YYYY-MM-DD HH:MM:SS.mmm" without timezone info
-                const s = ts.replace('T', ' ').replace(/\+.*$/, '').replace('Z', '');
-                return s;
+                return ts.replace('T', ' ').replace(/\+.*$/, '').replace('Z', '').replace(/\.\d+$/, '');
+            },
+
+            // Convert a UTC ISO timestamp to the browser's local timezone
+            formatLocalTimestamp(ts) {
+                if (!ts) return '';
+                try {
+                    // Parse — ensure it's treated as UTC
+                    const utc = ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z';
+                    const d   = new Date(utc.endsWith('Z') || utc.includes('+') ? utc : utc + 'Z');
+                    if (isNaN(d)) return ts;
+                    return d.toLocaleString('sv-SE', {        // sv-SE gives ISO-like format
+                        timeZone:  this.localTimezone,
+                        year:      'numeric',
+                        month:     '2-digit',
+                        day:       '2-digit',
+                        hour:      '2-digit',
+                        minute:    '2-digit',
+                        second:    '2-digit',
+                        hour12:    false,
+                    }).replace('T', ' ');
+                } catch (e) {
+                    return ts;
+                }
+            },
+
+            // Short timezone label, e.g. "Asia/Kolkata" → "IST +05:30"
+            formatTimezoneLabel(ts) {
+                if (!ts) return this.localTimezone;
+                try {
+                    const utc = ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z';
+                    const d   = new Date(utc.endsWith('Z') || utc.includes('+') ? utc : utc + 'Z');
+                    if (isNaN(d)) return this.localTimezone;
+                    // Get offset string like "GMT+5:30"
+                    const parts = new Intl.DateTimeFormat('en', {
+                        timeZone:     this.localTimezone,
+                        timeZoneName: 'short',
+                    }).formatToParts(d);
+                    const tzName = parts.find(p => p.type === 'timeZoneName')?.value || this.localTimezone;
+                    return tzName;
+                } catch (e) {
+                    return this.localTimezone;
+                }
             },
 
             formatFileSize(bytes) {
