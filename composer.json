@@ -1,0 +1,26 @@
+{
+    "name": "shafeeq/laravel-log-viewer",
+    "description": "Advanced Log Viewer package for Laravel",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^10.0|^11.0",
+        "illuminate/http": "^10.0|^11.0",
+        "illuminate/filesystem": "^10.0|^11.0",
+        "illuminate/routing": "^10.0|^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Shafeeq\\LogViewer\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Shafeeq\\LogViewer\\LogViewerServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable"
+}
