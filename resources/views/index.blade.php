@@ -355,10 +355,10 @@
                         ‹ Prev
                     </button>
 
-                    <template x-for="p in paginationPages" :key="p">
-                        <button @click="p !== '…' && goToPage(p)"
+                    <template x-for="(p, idx) in paginationPages" :key="idx">
+                        <button @click="typeof p === 'number' && goToPage(p)"
                                 :class="p === currentPage ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 hover:bg-gray-50'"
-                                :disabled="p === '…'"
+                                :disabled="typeof p !== 'number'"
                                 class="px-2.5 py-1 text-xs rounded border min-w-[30px]"
                                 x-text="p"></button>
                     </template>
@@ -648,6 +648,7 @@
             total: 0,
             currentPage: 1,
             lastPage: 1,
+            paginationPages: [],
             loading: false,
 
             // ---- Filters ----
@@ -712,10 +713,12 @@
             },
 
             selectFile(file) {
-                this.selectedFile = file;
-                this.currentPage  = 1;
-                this.entries      = [];
-                this.total        = 0;
+                this.selectedFile   = file;
+                this.currentPage    = 1;
+                this.lastPage       = 1;
+                this.paginationPages = [];
+                this.entries        = [];
+                this.total          = 0;
                 this.loadEntries();
                 this.loadChart();
             },
@@ -746,9 +749,10 @@
 
                     if (json.success) {
                         this.entries     = json.data;
-                        this.total       = json.meta.total;
-                        this.currentPage = json.meta.current_page;
-                        this.lastPage    = json.meta.last_page;
+                        this.total       = parseInt(json.meta.total)        || 0;
+                        this.currentPage = parseInt(json.meta.current_page) || 1;
+                        this.lastPage    = parseInt(json.meta.last_page)    || 1;
+                        this.computePaginationPages();
                     } else {
                         this.showError(json.message || 'Failed to load entries');
                     }
@@ -813,32 +817,34 @@
             // PAGINATION
             // ================================================================
             goToPage(page) {
-                if (page < 1 || page > this.lastPage || page === this.currentPage) return;
+                page = parseInt(page);
+                if (!page || page < 1 || page > this.lastPage || page === this.currentPage) return;
                 this.currentPage = page;
                 this.loadEntries();
             },
 
-            get paginationPages() {
+            computePaginationPages() {
                 const pages = [];
                 const cur   = this.currentPage;
                 const last  = this.lastPage;
 
                 if (last <= 7) {
                     for (let i = 1; i <= last; i++) pages.push(i);
-                    return pages;
+                    this.paginationPages = pages;
+                    return;
                 }
 
                 pages.push(1);
-                if (cur > 3)  pages.push('…');
+                if (cur > 3) pages.push('…');
 
-                for (let i = Math.max(2, cur - 1); i <= Math.min(last - 1, cur + 1); i++) {
-                    pages.push(i);
-                }
+                const from = Math.max(2, cur - 1);
+                const to   = Math.min(last - 1, cur + 1);
+                for (let i = from; i <= to; i++) pages.push(i);
 
                 if (cur < last - 2) pages.push('…');
                 pages.push(last);
 
-                return pages;
+                this.paginationPages = pages;
             },
 
             // ================================================================
