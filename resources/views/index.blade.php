@@ -62,7 +62,7 @@
         </div>
 
         <div class="ml-auto flex items-center gap-3 text-xs text-gray-500">
-            <span x-show="selectedFile" x-text="selectedFile ? selectedFile.name : ''" class="font-mono-small bg-gray-100 px-2 py-1 rounded"></span>
+            <span x-show="selectedFile" x-text="selectedFile ? selectedFile.display_path : ''" class="font-mono-small bg-gray-100 px-2 py-1 rounded"></span>
             <span x-show="selectedFile" class="text-gray-400" x-text="selectedFile ? selectedFile.size_human : ''"></span>
             <span class="text-gray-300">|</span>
             <span>Timezone: <strong class="text-gray-700">{{ $config['app_timezone'] }}</strong></span>
@@ -107,9 +107,9 @@
                     </div>
                 </template>
 
-                <template x-for="file in filteredFiles" :key="file.path">
+                <template x-for="file in filteredFiles" :key="file.encrypted_path">
                     <div class="group px-3 py-2.5 cursor-pointer border-b border-gray-50 hover:bg-blue-50 transition"
-                         :class="selectedFile && selectedFile.path === file.path ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''"
+                         :class="selectedFile && selectedFile.encrypted_path === file.encrypted_path ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''"
                          @click="selectFile(file)">
                         <div class="flex items-start justify-between gap-1">
                             <div class="flex-1 min-w-0">
@@ -121,7 +121,7 @@
                                 </div>
                             </div>
                             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
-                                <a :href="baseUrl + '/api/download?file=' + encodeURIComponent(file.path)"
+                                <a :href="baseUrl + '/api/download?file=' + encodeURIComponent(file.encrypted_path)"
                                    @click.stop
                                    class="p-1 text-gray-400 hover:text-blue-500 transition" title="Download">
                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -746,7 +746,7 @@
                 this.loading = true;
                 try {
                     const params = new URLSearchParams({
-                        file:     this.selectedFile.path,
+                        file:     this.selectedFile.encrypted_path,
                         page:     this.currentPage,
                         per_page: {{ $config['per_page'] }},
                         ...this.activeFilters(),
@@ -863,7 +863,7 @@
                 this.loadingChart = true;
 
                 try {
-                    const params = new URLSearchParams({ file: this.selectedFile.path });
+                    const params = new URLSearchParams({ file: this.selectedFile.encrypted_path });
                     const res    = await fetch(this.baseUrl + '/api/chart?' + params.toString());
                     const json   = await res.json();
 
@@ -956,7 +956,7 @@
                 this.showRaw        = false;
 
                 try {
-                    const params = new URLSearchParams({ file: this.selectedFile ? this.selectedFile.path : '' });
+                    const params = new URLSearchParams({ file: this.selectedFile ? this.selectedFile.encrypted_path : '' });
                     const res    = await fetch(`${this.baseUrl}/api/entries/${entry.id}?${params.toString()}`);
                     const json   = await res.json();
 
@@ -996,12 +996,12 @@
                             'Content-Type': 'application/json',
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
                         },
-                        body: JSON.stringify({ file: this.fileToDelete.path }),
+                        body: JSON.stringify({ file: this.fileToDelete.encrypted_path }),
                     });
                     const json = await res.json();
 
                     if (json.success) {
-                        if (this.selectedFile && this.selectedFile.path === this.fileToDelete.path) {
+                        if (this.selectedFile && this.selectedFile.encrypted_path === this.fileToDelete.encrypted_path) {
                             this.selectedFile = null;
                             this.entries      = [];
                             this.total        = 0;

@@ -20,7 +20,7 @@ class LogApiController extends Controller
 
     /**
      * GET /api/files
-     * List all log files.
+     * List all log files. Full paths are never returned — only display_path + encrypted_path.
      */
     public function files(): JsonResponse
     {
@@ -44,11 +44,11 @@ class LogApiController extends Controller
     public function entries(Request $request): JsonResponse
     {
         try {
-            $file    = $request->input('file');
-            $page    = (int) $request->input('page', 1);
-            $perPage = (int) $request->input('per_page', config('log-viewer.per_page', 50));
+            $encryptedFile = $request->input('file');
+            $page          = (int) $request->input('page', 1);
+            $perPage       = (int) $request->input('per_page', config('log-viewer.per_page', 50));
 
-            if (empty($file)) {
+            if (empty($encryptedFile)) {
                 // Auto-select first file
                 $files = $this->reader->getLogFiles(storage_path('logs'));
                 if (empty($files)) {
@@ -58,7 +58,12 @@ class LogApiController extends Controller
                         'meta'    => ['total' => 0, 'per_page' => $perPage, 'current_page' => 1, 'last_page' => 1],
                     ]);
                 }
-                $file = $files[0]['path'];
+                $encryptedFile = $files[0]['encrypted_path'];
+            }
+
+            $file = $this->resolveFilePath($encryptedFile);
+            if ($file === null) {
+                return $this->errorResponse('Invalid or tampered file token.', 422);
             }
 
             $filters = [
@@ -99,14 +104,19 @@ class LogApiController extends Controller
     public function entry(Request $request, string $id): JsonResponse
     {
         try {
-            $file = $request->input('file');
+            $encryptedFile = $request->input('file');
 
-            if (empty($file)) {
+            if (empty($encryptedFile)) {
                 $files = $this->reader->getLogFiles(storage_path('logs'));
                 if (empty($files)) {
                     return $this->errorResponse('No log file specified.', 404);
                 }
-                $file = $files[0]['path'];
+                $encryptedFile = $files[0]['encrypted_path'];
+            }
+
+            $file = $this->resolveFilePath($encryptedFile);
+            if ($file === null) {
+                return $this->errorResponse('Invalid or tampered file token.', 422);
             }
 
             // Read all entries and find by ID
@@ -143,14 +153,19 @@ class LogApiController extends Controller
     public function chart(Request $request): JsonResponse
     {
         try {
-            $file = $request->input('file');
+            $encryptedFile = $request->input('file');
 
-            if (empty($file)) {
+            if (empty($encryptedFile)) {
                 $files = $this->reader->getLogFiles(storage_path('logs'));
                 if (empty($files)) {
                     return response()->json(['success' => true, 'data' => ['labels' => [], 'datasets' => []]]);
                 }
-                $file = $files[0]['path'];
+                $encryptedFile = $files[0]['encrypted_path'];
+            }
+
+            $file = $this->resolveFilePath($encryptedFile);
+            if ($file === null) {
+                return $this->errorResponse('Invalid or tampered file token.', 422);
             }
 
             $chartData = $this->reader->readForChart($file);
@@ -171,10 +186,15 @@ class LogApiController extends Controller
     public function delete(Request $request): JsonResponse
     {
         try {
-            $file = $request->input('file');
+            $encryptedFile = $request->input('file');
 
-            if (empty($file)) {
+            if (empty($encryptedFile)) {
                 return $this->errorResponse('No file specified.', 422);
+            }
+
+            $file = $this->resolveFilePath($encryptedFile);
+            if ($file === null) {
+                return $this->errorResponse('Invalid or tampered file token.', 422);
             }
 
             $deleted = $this->reader->deleteFile($file);
@@ -199,16 +219,48 @@ class LogApiController extends Controller
     public function download(Request $request): BinaryFileResponse|JsonResponse
     {
         try {
-            $file = $request->input('file');
+            $encryptedFile = $request->input('file');
 
-            if (empty($file)) {
+            if (empty($encryptedFile)) {
                 return $this->errorResponse('No file specified.', 422);
+            }
+
+            $file = $this->resolveFilePath($encryptedFile);
+            if ($file === null) {
+                return $this->errorResponse('Invalid or tampered file token.', 422);
             }
 
             return $this->reader->downloadFile($file);
         } catch (\Throwable $e) {
             return $this->errorResponse($e->getMessage());
         }
+    }
+
+    /**
+     * Decrypt an encrypted file token and validate it resolves to a real,
+     * safe path. Returns null when the token is invalid or tampered.
+     */
+    private function resolveFilePath(string $encryptedFile): ?string
+    {
+        $path = $this->reader->decryptPath($encryptedFile);
+
+        if ($path === null) {
+            return null;
+        }
+
+        // Double-check the decrypted path stays inside storage/logs
+        $realPath    = realpath($path);
+        $storageLogs = realpath(storage_path('logs'));
+
+        if ($realPath === false || $storageLogs === false) {
+            return null;
+        }
+
+        if (!str_starts_with($realPath, $storageLogs)) {
+            return null;
+        }
+
+        return $realPath;
     }
 
     private function errorResponse(string $message, int $status = 500): JsonResponse

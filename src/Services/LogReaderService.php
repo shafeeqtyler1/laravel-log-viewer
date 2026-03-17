@@ -6,6 +6,8 @@ namespace Shafeeq\LogViewer\Services;
 
 use Shafeeq\LogViewer\Models\LogEntry;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class LogReaderService
@@ -19,8 +21,10 @@ class LogReaderService
 
     /**
      * Get all .log files from storage/logs directory.
+     * The full filesystem path is never exposed — only a short display path
+     * and an AES-256 encrypted token that callers must pass back for file operations.
      *
-     * @return array<int, array{name: string, path: string, size: int, size_human: string, modified_at: string, modified_human: string}>
+     * @return array<int, array{name: string, display_path: string, encrypted_path: string, size: int, size_human: string, modified_at: string, modified_human: string}>
      */
     public function getLogFiles(string $directory): array
     {
@@ -34,6 +38,9 @@ class LogReaderService
         if ($handle === false) {
             return [];
         }
+
+        // Build a short base label, e.g. "logs"
+        $storageBase = rtrim(storage_path(), DIRECTORY_SEPARATOR);
 
         while (($file = readdir($handle)) !== false) {
             if ($file === '.' || $file === '..') {
@@ -49,9 +56,14 @@ class LogReaderService
             $size     = filesize($fullPath);
             $modified = filemtime($fullPath);
 
+            // Relative display path: "logs/laravel.log"
+            $displayPath = ltrim(str_replace($storageBase, '', $fullPath), DIRECTORY_SEPARATOR);
+            $displayPath = str_replace('\\', '/', $displayPath);
+
             $files[] = [
                 'name'           => $file,
-                'path'           => $fullPath,
+                'display_path'   => $displayPath,
+                'encrypted_path' => $this->encryptPath($fullPath),
                 'size'           => $size,
                 'size_human'     => $this->formatBytes((int) $size),
                 'modified_at'    => date('Y-m-d H:i:s', (int) $modified),
@@ -65,6 +77,27 @@ class LogReaderService
         usort($files, static fn ($a, $b) => strcmp($b['modified_at'], $a['modified_at']));
 
         return $files;
+    }
+
+    /**
+     * Encrypt a full filesystem path into a tamper-proof token.
+     */
+    public function encryptPath(string $fullPath): string
+    {
+        return Crypt::encryptString($fullPath);
+    }
+
+    /**
+     * Decrypt a path token back to the full filesystem path.
+     * Returns null if the token is invalid or has been tampered with.
+     */
+    public function decryptPath(string $encryptedPath): ?string
+    {
+        try {
+            return Crypt::decryptString($encryptedPath);
+        } catch (DecryptException) {
+            return null;
+        }
     }
 
     /**
